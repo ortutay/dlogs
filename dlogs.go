@@ -7,8 +7,10 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"code.google.com/p/go-uuid/uuid"
@@ -25,6 +27,12 @@ var (
 	templatesPath  = flag.String("templates_path", "templates", "Path to templates")
 	dockerEndpoint = flag.String("docker_endpoint", "unix:///var/run/docker.sock", "Docker API endpoint")
 )
+
+// Store some log lines in a buffer, so we can send them to clients when they
+// connect
+const logsBufferSize = 250
+
+var logsBuffer []*string
 
 func main() {
 	flag.Parse()
@@ -88,6 +96,14 @@ func handleLogsStream(w http.ResponseWriter, r *http.Request, ctx *Context) erro
 	}()
 	msgChansLock.Unlock()
 
+	// Write the buffered log lines
+	go func() {
+		for _, line := range logsBuffer {
+			time.Sleep(5 * time.Millisecond)
+			ch <- *line
+		}
+	}()
+
 	for {
 		logData := <-ch
 		if err := conn.WriteMessage(websocket.TextMessage, []byte(logData)); err != nil {
@@ -125,7 +141,7 @@ func dockerLogStream(endpoint string) {
 		Stdout:       true,
 		Follow:       true,
 		RawTerminal:  true,
-		Tail:         "3",
+		Tail:         strconv.Itoa(logsBufferSize),
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -137,6 +153,11 @@ type dockerLogReceiver struct{}
 func (d dockerLogReceiver) Write(p []byte) (n int, err error) {
 	msgChansLock.Lock()
 	s := removeNonUTF8(string(p))
+	if len(logsBuffer) < logsBufferSize {
+		logsBuffer = append(logsBuffer, &s)
+	} else {
+		logsBuffer = append(logsBuffer[1:], &s)
+	}
 	for _, ch := range msgChans {
 		ch <- s
 	}
