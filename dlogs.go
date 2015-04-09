@@ -1,15 +1,15 @@
 package main
 
 import (
-	"unicode/utf8"
-	"sync"
-	"strings"
 	"flag"
-	"net/http"
-	"os"
 	"fmt"
 	"html/template"
 	"io/ioutil"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"unicode/utf8"
 
 	"code.google.com/p/go-uuid/uuid"
 
@@ -20,10 +20,10 @@ import (
 )
 
 var (
-	port          = flag.String("port", "8080", "Port to listen on")
-	staticDir     = flag.String("static_dir", ".", "Path to static files")
-	templatesPath = flag.String("templates_path", "templates", "Path to templates")
-	dockerHost = flag.String("docker_host", ":8888", "Docker host for log stream")
+	port           = flag.String("port", "8080", "Port to listen on")
+	staticDir      = flag.String("static_dir", ".", "Path to static files")
+	templatesPath  = flag.String("templates_path", "templates", "Path to templates")
+	dockerEndpoint = flag.String("docker_endpoint", "unix:///var/run/docker.sock", "Docker API endpoint")
 )
 
 func main() {
@@ -39,7 +39,7 @@ func main() {
 	http.Handle("/static/", http.FileServer(http.Dir(*staticDir)))
 	http.Handle("/", r)
 
-	go dockerLogStream(*dockerHost)
+	go dockerLogStream(*dockerEndpoint)
 
 	log.Infof("Listening at %v...", *port)
 	if err := http.ListenAndServe(":"+*port, nil); err != nil {
@@ -96,8 +96,8 @@ func handleLogsStream(w http.ResponseWriter, r *http.Request, ctx *Context) erro
 	}
 }
 
-func dockerLogStream(host string) {
-	client, err := docker.NewClient(fmt.Sprintf("http://%s", host))
+func dockerLogStream(endpoint string) {
+	client, err := docker.NewClient(endpoint)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -120,12 +120,12 @@ func dockerLogStream(host string) {
 	// TODO: loop if container is nil
 
 	err = client.Logs(docker.LogsOptions{
-		Container: container.ID,
+		Container:    container.ID,
 		OutputStream: dockerLogReceiver{},
-		Stdout: true,
-		Follow: true,
-		RawTerminal: true,
-		Tail: "3",
+		Stdout:       true,
+		Follow:       true,
+		RawTerminal:  true,
+		Tail:         "3",
 	})
 	if err != nil {
 		log.Fatal(err)
