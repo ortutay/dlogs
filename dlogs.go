@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,7 +16,7 @@ import (
 
 	"code.google.com/p/go-uuid/uuid"
 
-	"github.com/fsouza/go-dockerclient"
+	docker "github.com/fsouza/go-dockerclient"
 	log "github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
@@ -27,6 +28,21 @@ var (
 	templatesPath  = flag.String("templates_path", "templates", "Path to templates")
 	dockerEndpoint = flag.String("docker_endpoint", "unix:///var/run/docker.sock", "Docker API endpoint")
 )
+
+var (
+	// ^A followed by six \0 characters, and ending with some other character
+	// shows up at the beginning of lines. Remove it for now.
+	// TODO(ortutay): figure out what this escape sequence means
+	linePrefixRE = regexp.MustCompile("^.......")
+
+	// For now, just remove color controls
+	// TODO(ortutay): translate bash colors to HTML tags
+	bashColorsRE = regexp.MustCompile("\\[[0-9]{1,3}m")
+)
+
+var bashColorsSubTable = map[string]string{
+	"[90m": "870087",
+}
 
 // Store some log lines in a buffer, so we can send them to clients when they
 // connect
@@ -162,17 +178,25 @@ type dockerLogReceiver struct{}
 
 func (d dockerLogReceiver) Write(p []byte) (n int, err error) {
 	msgChansLock.Lock()
-	s := removeNonUTF8(string(p))
-	if len(logsBuffer) < logsBufferSize {
-		logsBuffer = append(logsBuffer, &s)
-	} else {
-		logsBuffer = append(logsBuffer[1:], &s)
+	defer msgChansLock.Unlock()
+	lines := strings.Split(string(p), "\n")
+
+	for _, line := range lines {
+		line = linePrefixRE.ReplaceAllString(line, "")
+		line = bashColorsRE.ReplaceAllString(line, "")
+
+		s := removeNonUTF8(line)
+		if len(logsBuffer) < logsBufferSize {
+			logsBuffer = append(logsBuffer, &s)
+		} else {
+			logsBuffer = append(logsBuffer[1:], &s)
+		}
+
+		for _, ch := range msgChans {
+			ch <- s
+		}
+		log.Info(s)
 	}
-	for _, ch := range msgChans {
-		ch <- s
-	}
-	msgChansLock.Unlock()
-	log.Info(s)
 	return len(p), nil
 }
 
