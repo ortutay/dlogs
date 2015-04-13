@@ -118,20 +118,30 @@ func dockerLogStream(endpoint string) {
 		log.Fatal(err)
 	}
 	log.Infof("docker client: %v", client)
-	containers, err := client.ListContainers(docker.ListContainersOptions{})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// TODO: flag to indicate which container to stream
 
 	var container *docker.APIContainers
-	for _, c := range containers {
-		if !strings.HasPrefix(c.Image, "ortutay/dlogs") {
-			container = &c
+	for {
+		containers, err := client.ListContainers(docker.ListContainersOptions{})
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		log.Infof("Got containers: %v", containers)
+
+		for _, c := range containers {
+			// TODO: fix this obviously broken check
+			if !strings.Contains(c.Image, "/dlogs") && !strings.Contains(c.Command, "/dlogs") {
+				container = &c
+				break
+			}
+		}
+		if container != nil {
 			break
 		}
+		time.Sleep(1 * time.Second)
 	}
+
+	log.Infof("Tracking container %s: %v", container.Image, container)
 
 	// TODO: loop if container is nil
 
