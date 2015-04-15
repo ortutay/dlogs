@@ -164,7 +164,9 @@ func dockerLogStream(endpoint string) {
 	err = client.Logs(docker.LogsOptions{
 		Container:    container.ID,
 		OutputStream: dockerLogReceiver{},
+		ErrorStream:  dockerLogReceiver{},
 		Stdout:       true,
+		Stderr:       true,
 		Follow:       true,
 		RawTerminal:  true,
 		Tail:         strconv.Itoa(logsBufferSize),
@@ -184,6 +186,8 @@ func (d dockerLogReceiver) Write(p []byte) (n int, err error) {
 	for _, line := range lines {
 		line = linePrefixRE.ReplaceAllString(line, "")
 		line = bashColorsRE.ReplaceAllString(line, "")
+
+		log.Infof("Got line: %s", line)
 
 		s := removeNonUTF8(line)
 		if len(logsBuffer) < logsBufferSize {
